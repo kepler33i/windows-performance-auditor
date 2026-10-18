@@ -1,0 +1,24 @@
+# Resultados de auditorias: contienen datos del equipo auditado. Nunca se versionan.
+audit-log.jsonl
+baseline*.json
+hardware-health.json
+findings.json
+action-plan.json
+action-plan.md
+executed-actions.json
+backup-*.json
+cleanup-*.json
+validation-*.json
+winget-upgrades.*
+battery-report.*
+report*.html
+service-report*.html
+org-authorization.json
+Auditorias/
+
+# Sistema
+Thumbs.db
+desktop.ini
+
+# Las plantillas de la skill si se versionan
+!windows-performance-auditor/assets/*.html

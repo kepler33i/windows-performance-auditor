@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>{{TITLE}}</title>
+<style>
+  :root { --bg:#ffffff; --fg:#1d1d1f; --muted:#5f6368; --line:#d9dce1; --card:#f6f7f9; --good:#1e7d32; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181c; --fg:#e8eaed; --muted:#9aa0a6; --line:#33373d; --card:#1f2227; --good:#81c995; --bad:#f28b82; }
+  }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin-top: 28px; }
+  .meta { color: var(--muted); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card { background: var(--card); border-radius: 6px; padding: 10px 14px; }
+  .card b { display:block; font-size: .8rem; color: var(--muted); font-weight: 600; }
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  th { font-size: .85rem; color: var(--muted); font-weight: 600; }
+  .t-mejora { color: var(--good); font-weight: 600; }
+  .t-empeora { color: var(--bad); font-weight: 600; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 32px; border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{TITLE}}</h1>
+  <div class="meta">Generado: {{GENERATED}}</div>
+  <div class="grid">
+    <div class="card"><b>Cliente</b>{{CLIENT}}</div>
+    <div class="card"><b>Tecnico</b>{{TECHNICIAN}}</div>
+    <div class="card"><b>Ticket</b>{{TICKET}}</div>
+    <div class="card"><b>Acciones aplicadas y validadas</b>{{APPLIED}}</div>
+  </div>
+  <h2>Equipo</h2>
+  <p>{{SYSTEM}}</p>
+  <h2>Estrategia segun componentes</h2>
+  {{PROFILE}}
+  <h2>Resultados medidos</h2>
+  <div class="wrap"><table><thead><tr><th>Metrica</th><th>Antes</th><th>Despues</th><th>Tendencia</th></tr></thead><tbody>{{METRICS}}</tbody></table></div>
+  <h2>Acciones</h2>
+  <div class="wrap"><table><thead><tr><th>Id</th><th>Accion</th><th>Objetivo</th><th>Estado</th></tr></thead><tbody>{{ACTIONS}}</tbody></table></div>
+  <h2>Hardware y capacidad</h2>
+  <ul>{{HARDWARE}}</ul>
+  <h2>Recomendaciones manuales</h2>
+  <ul>{{MANUAL}}</ul>
+  <footer>
+    Las mediciones provienen de Windows sin herramientas adicionales; "no disponible" indica que el dato no se pudo obtener y no se infirio.
+    Una optimizacion de software no corrige fallas de hardware. Cada accion fue aprobada explicitamente y registrada en audit-log.jsonl.
+  </footer>
+</main>
+</body>
+</html>
