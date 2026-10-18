@@ -642,6 +642,33 @@ $sorted = @($findings | Sort-Object @{ Expression = { $sevOrder[$_.Severity] } }
 $summary = [ordered]@{}
 foreach ($c in $script:WpaCategories) { $summary[$c] = @($sorted | Where-Object { $_.Category -eq $c }).Count }
 
+# Inventario de componentes identificados (base del diagnostico)
+$components = New-Object System.Collections.ArrayList
+if (V 'Bios.Version') { [void]$components.Add(('BIOS: {0} {1} ({2}, hace {3} anios)' -f (V 'Bios.Manufacturer'), (V 'Bios.Version'), (V 'Bios.ReleaseDate'), (V 'Bios.AgeYears'))) }
+[void]$components.Add(('CPU: {0} - {1} nucleos / {2} hilos, {3} MHz' -f (V 'CPU.Name'), (V 'CPU.Cores'), (V 'CPU.LogicalProcessors'), (V 'CPU.MaxClockMHz')))
+$memMods = @((HwL 'Memory.Modules') | ForEach-Object { '{0} GB {1} MHz' -f (Get-WpaValue $_ 'CapacityGB' '?'), (Get-WpaValue $_ 'SpeedMHz' '?') })
+[void]$components.Add(('RAM: {0} GB visibles{1}' -f $totalRam, $(if ($memMods.Count) { ' - modulos: ' + ($memMods -join ' + ') } else { '' })))
+if ($null -ne (Hw 'Memory.SlotsUsed')) { [void]$components.Add('RAM: ' + (Get-WpaRamUpgradeHint -SlotsTotal (Hw 'Memory.SlotsTotal') -SlotsUsed (Hw 'Memory.SlotsUsed'))) }
+foreach ($g in (VL 'GPU')) { [void]$components.Add(('GPU: {0} (driver {1}, {2})' -f (Get-WpaValue $g 'Name' '?'), (Get-WpaValue $g 'DriverVersion' 'n/d'), (Get-WpaValue $g 'DriverDate' 'n/d'))) }
+foreach ($d in (VL 'Disks')) {
+    $dn = [string](Get-WpaValue $d 'FriendlyName' ''); $db = [string](Get-WpaValue $d 'BusType' '')
+    $cls = if (Test-WpaOptaneHybrid -FriendlyName $dn -BusType $db) { 'HDD + Optane' } else { '{0}/{1}' -f (Get-WpaValue $d 'MediaType' '?'), $db }
+    [void]$components.Add(('Disco: {0} ({1}, {2} GB, salud {3}){4}' -f $dn, $cls, (Get-WpaValue $d 'SizeGB' '?'), (Get-WpaValue $d 'HealthStatus' '?'), $(if ([string](Get-WpaValue $d 'DeviceId' '') -eq $sysDiskNum) { ' [sistema]' } else { '' })))
+}
+if ([bool](Hw 'Battery.Present' $false)) { [void]$components.Add(('Bateria: salud {0}' -f $(if ($null -ne (Hw 'Battery.HealthPercent')) { [string](Hw 'Battery.HealthPercent') + '%' } else { 'no disponible' }))) }
+
+# BIOS antigua: solo recomendacion manual (la skill nunca modifica BIOS/firmware)
+$biosAge = V 'Bios.AgeYears'
+if ($null -ne $biosAge -and [double]$biosAge -ge 3) {
+    Add-Finding -RuleId 'BIOS-01' -Category 'configuracion-optimizable' -Severity 'low' -Confidence 'media' -Title ('BIOS/UEFI de hace {0} anios' -f $biosAge) `
+        -Evidence @(('BIOS {0} {1}, fecha {2}' -f (V 'Bios.Manufacturer'), (V 'Bios.Version'), (V 'Bios.ReleaseDate'))) `
+        -Interpretation 'Las actualizaciones de BIOS corrigen estabilidad, gestion de energia, compatibilidad PCIe/Wi-Fi y seguridad.' `
+        -Recommendation 'Revisar en el sitio de soporte del fabricante si hay una version mas reciente para este modelo e instalarla manualmente (con cargador conectado). La skill no actualiza BIOS ni firmware.' `
+        -AgentLimits 'El agente no modifica BIOS, firmware ni controladores.'
+    $sorted = @($findings | Sort-Object @{ Expression = { $sevOrder[$_.Severity] } }, Id)
+    foreach ($c in $script:WpaCategories) { $summary[$c] = @($sorted | Where-Object { $_.Category -eq $c }).Count }
+}
+
 $result = [ordered]@{
     SchemaVersion   = 1
     Mode            = 'audit-only'
@@ -651,6 +678,8 @@ $result = [ordered]@{
     System          = [ordered]@{
         OS = ('{0} ({1})' -f (V 'OS.Caption'), (V 'OS.Build')); CPU = (V 'CPU.Name'); RamGB = $totalRam
         Model = ('{0} {1}' -f (V 'Computer.Manufacturer'), (V 'Computer.Model'))
+        FormFactor = $hwProfile.FormFactor
+        Components = $components.ToArray()
     }
     HardwareProfile = $hwProfile
     Summary         = $summary
@@ -676,7 +705,9 @@ function ConvertTo-Html5Report {
             (& $e $f.Interpretation), (& $e $f.Recommendation), $acts, $lim, $man, $bak)
     }
     $sys = $Data.System
-    $sysHtml = '<p>{0}<br>{1}<br>RAM: {2} GB<br>{3}</p>' -f (& $e $sys.OS), (& $e $sys.CPU), (& $e $sys.RamGB), (& $e $sys.Model)
+    $sysHtml = '<p><b>{0}</b> ({1})<br>{2}</p>' -f (& $e $sys.Model), (& $e (Get-WpaValue $sys 'FormFactor' '')), (& $e $sys.OS)
+    $compList = @(Get-WpaList (Get-WpaValue $sys 'Components' @()))
+    if ($compList.Count) { $sysHtml += '<ul>' + (($compList | ForEach-Object { '<li>' + (& $e $_) + '</li>' }) -join '') + '</ul>' }
     $out = $tpl.Replace('{{TITLE}}', (& $e $Title)).Replace('{{GENERATED}}', (& $e (Get-Date).ToString('yyyy-MM-dd HH:mm'))).Replace('{{MODE}}', 'audit-only')
     $prof = $Data.HardwareProfile
     $profHtml = ''

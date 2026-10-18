@@ -49,10 +49,11 @@ La skill **nunca** cambia la ExecutionPolicy.
 Pidele al agente, por ejemplo: *"Mi PC con Windows anda lento, auditalo"*. El agente:
 
 1. Pide la carpeta donde guardar reportes y si autorizas el inventario de programas.
-2. Recolecta datos (solo lectura) y analiza.
-3. Muestra el perfil del equipo, los hallazgos y un plan con comandos exactos, riesgos y reversion.
-4. **Se detiene** hasta que apruebes identificadores concretos (`Apruebo A-xxxxxxxx-001`).
-5. Aplica una accion por vez, valida cada resultado y genera el informe de servicio.
+2. **Identifica el equipo y sus componentes** (modelo, Windows, BIOS, CPU, RAM y ranuras, GPU, discos, bateria) y define un plan de diagnostico adaptado a ese hardware.
+3. Recolecta datos segun ese plan (solo lectura) y analiza.
+4. Muestra los hallazgos y un plan con comandos exactos, riesgos y reversion.
+5. **Se detiene** hasta que apruebes identificadores concretos (`Apruebo A-xxxxxxxx-001`) o el paquete de bajo riesgo.
+6. Aplica una accion por vez, valida cada resultado y genera el informe de servicio.
 
 "Optimiza mi computador" no autoriza cambios: solo inicia la auditoria.
 

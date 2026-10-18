@@ -91,7 +91,7 @@ function Build-Report {
         '{{CLIENT}}'     = (& $e $(if ($Client) { $Client } else { '-' }))
         '{{TECHNICIAN}}' = (& $e $(if ($Technician) { $Technician } elseif ($plan) { [string](Get-WpaValue $plan 'Technician' '-') } else { '-' }))
         '{{TICKET}}'     = (& $e $(if ($plan -and (Get-WpaValue $plan 'Ticket' '')) { $plan.Ticket } else { '-' }))
-        '{{SYSTEM}}'     = ('{0}<br>{1}<br>RAM: {2} GB<br>{3}' -f (& $e $sys.OS), (& $e $sys.CPU), (& $e $sys.RamGB), (& $e $sys.Model))
+        '{{SYSTEM}}'     = (('<b>{0}</b><br>{1}' -f (& $e $sys.Model), (& $e $sys.OS)) + $(if (@(Get-WpaList (Get-WpaValue $sys 'Components' @())).Count) { '<ul>' + ((@(Get-WpaList $sys.Components) | ForEach-Object { '<li>' + (& $e $_) + '</li>' }) -join '') + '</ul>' } else { ('<br>{0}<br>RAM: {1} GB' -f (& $e $sys.CPU), (& $e $sys.RamGB)) }))
         '{{PROFILE}}'    = $profHtml
         '{{METRICS}}'    = ($rows -join '')
         '{{ACTIONS}}'    = $(if ($actRows.Count) { $actRows -join '' } else { '<tr><td colspan="4">Sin plan de acciones.</td></tr>' })

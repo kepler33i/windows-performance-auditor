@@ -363,6 +363,75 @@ function Get-WpaOrphanServices {
 # Perfil de hardware
 # ---------------------------------------------------------------------------
 
+function Get-WpaFormFactor {
+    # Logica pura: portatil / escritorio / desconocido a partir de PCSystemType, ChassisTypes y bateria.
+    param([int]$PCSystemType = 0, [int[]]$ChassisTypes = @(), [bool]$HasBattery = $false)
+    $laptop = @(8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32)
+    $desktop = @(3, 4, 5, 6, 7, 13, 15, 16, 24, 35, 36)
+    if ($PCSystemType -eq 2 -or $HasBattery -or @($ChassisTypes | Where-Object { $laptop -contains $_ }).Count -gt 0) { return 'portatil' }
+    if (@($ChassisTypes | Where-Object { $desktop -contains $_ }).Count -gt 0) { return 'escritorio' }
+    return 'desconocido'
+}
+
+function Get-WpaRamUpgradeHint {
+    # Logica pura: posibilidad de ampliar RAM segun ranuras.
+    param($SlotsTotal, $SlotsUsed)
+    if ($null -eq $SlotsTotal -or [int]$SlotsTotal -le 0) { return 'Ranuras de RAM no determinables por software (puede estar soldada): verificar en el manual del fabricante.' }
+    $free = [int]$SlotsTotal - [int]$SlotsUsed
+    if ($free -gt 0) { return ('{0} de {1} ranuras de RAM libres: ampliable agregando modulos (verificar maximo soportado).' -f $free, $SlotsTotal) }
+    if ([int]$SlotsTotal -eq 1) { return 'La unica ranura de RAM esta ocupada: ampliar implica reemplazar el modulo (o puede haber memoria soldada adicional).' }
+    return ('Las {0} ranuras de RAM estan ocupadas: ampliar implica reemplazar modulos (o puede haber memoria soldada).' -f $SlotsTotal)
+}
+
+function Get-WpaDiagnosticPlan {
+    <#
+      Logica pura: orienta el diagnostico segun la identificacion del equipo.
+      Devuelve { Focus[]; CollectArgs[]; HardwareArgs[]; Notes[] }.
+    #>
+    param($Identity)
+    $p = Get-WpaValue $Identity 'Profile'
+    $focus = New-Object System.Collections.ArrayList
+    $cArgs = New-Object System.Collections.ArrayList
+    $hArgs = New-Object System.Collections.ArrayList
+    $notes = New-Object System.Collections.ArrayList
+    if ([bool](Get-WpaValue $p 'IsMechanical' $false)) { [void]$focus.Add('Disco mecanico: priorizar tiempo de arranque, presion de disco y recorte de inicio.') }
+    if ([string](Get-WpaValue $p 'RamTier' '') -eq 'bajo') { [void]$focus.Add('RAM baja: priorizar memoria comprometida, procesos residentes y posibles fugas.'); [void]$cArgs.Add('-LeakWatchMinutes 10') }
+    if ([string](Get-WpaValue $p 'CpuTier' '') -eq 'bajo') { [void]$focus.Add('CPU limitada: priorizar procesos en segundo plano y efectos visuales.') }
+    if ([string](Get-WpaValue $p 'FormFactor' '') -eq 'portatil') { [void]$focus.Add('Portatil: revisar salud de bateria, throttling y plan de energia.'); [void]$hArgs.Add('-IncludeBatteryReport') }
+    if ([string](Get-WpaValue $p 'StorageClass' '') -in @('SSD', 'NVMe')) { [void]$focus.Add('SSD: el disco rara vez es la causa; priorizar programas de inicio, apps en segundo plano y RAM.') }
+    $bios = Get-WpaValue $Identity 'Bios.AgeYears'
+    if ($null -ne $bios -and [double]$bios -ge 3) { [void]$focus.Add(('BIOS de hace {0} anios: revisar si el fabricante publico actualizaciones (recomendacion manual).' -f $bios)) }
+    $free = Get-WpaValue $Identity 'SystemVolume.FreePercent'
+    if ($null -ne $free -and [double]$free -lt 15) { [void]$focus.Add('Poco espacio libre en la unidad del sistema: incluir limpieza por categorias.') }
+    [void]$cArgs.Add('-IncludeAppUsage (solo con consentimiento del usuario)')
+    if ([bool](Get-WpaValue $Identity 'Context.IsManaged' $false)) { [void]$notes.Add('Equipo administrado: solo verificaciones, salvo autorizacion corporativa verificable.') }
+    if (-not [bool](Get-WpaValue $Identity 'Context.IsAdmin' $false)) { [void]$notes.Add('Sin administrador no se leen: culpables del arranque, SMART detallado, Prefetch (uso de programas) ni bateria por WMI. Para un diagnostico completo, el usuario puede abrir una consola elevada.') }
+    return [pscustomobject]@{ Focus = $focus.ToArray(); CollectArgs = $cArgs.ToArray(); HardwareArgs = $hArgs.ToArray(); Notes = $notes.ToArray() }
+}
+
+function Format-WpaSystemSummary {
+    # Logica pura: resumen legible de la identificacion para mostrar al usuario.
+    param($Identity)
+    $l = New-Object System.Collections.ArrayList
+    $v = { param($path, $def = 'no disponible') $x = Get-WpaValue $Identity $path; if ($null -eq $x -or [string]$x -eq '') { $def } else { $x } }
+    [void]$l.Add(('EQUIPO     {0} {1} ({2})' -f (& $v 'System.Manufacturer'), (& $v 'System.Model'), (& $v 'Profile.FormFactor')))
+    [void]$l.Add(('WINDOWS    {0} {1} (compilacion {2}), instalado {3}' -f (& $v 'Os.Caption'), (& $v 'Os.DisplayVersion' ''), (& $v 'Os.Build'), (& $v 'Os.InstallDate')))
+    [void]$l.Add(('BIOS       {0} {1} ({2}, hace {3} anios)' -f (& $v 'Bios.Manufacturer'), (& $v 'Bios.Version'), (& $v 'Bios.ReleaseDate'), (& $v 'Bios.AgeYears')))
+    [void]$l.Add(('CPU        {0}: {1} nucleos / {2} hilos, {3} MHz' -f (& $v 'Cpu.Name'), (& $v 'Cpu.Cores'), (& $v 'Cpu.LogicalProcessors'), (& $v 'Cpu.MaxClockMHz')))
+    $mods = @(Get-WpaList (Get-WpaValue $Identity 'Memory.Modules' @()) | ForEach-Object { '{0} GB {1} MHz' -f (Get-WpaValue $_ 'CapacityGB' '?'), (Get-WpaValue $_ 'SpeedMHz' '?') })
+    [void]$l.Add(('RAM        {0} GB visibles; modulos: {1}' -f (& $v 'Memory.TotalGB'), $(if ($mods.Count) { $mods -join ' + ' } else { 'no disponible' })))
+    [void]$l.Add(('           {0}' -f (& $v 'Memory.UpgradeHint')))
+    foreach ($g in @(Get-WpaList (Get-WpaValue $Identity 'Gpu' @()))) { [void]$l.Add(('GPU        {0} (driver {1}, {2})' -f (Get-WpaValue $g 'Name' '?'), (Get-WpaValue $g 'DriverVersion' 'n/d'), (Get-WpaValue $g 'DriverDate' 'n/d'))) }
+    foreach ($d in @(Get-WpaList (Get-WpaValue $Identity 'Disks' @()))) {
+        [void]$l.Add(('DISCO      {0}: {1} {2}, {3} GB, salud {4}{5}' -f (Get-WpaValue $d 'DeviceId' '?'), (Get-WpaValue $d 'FriendlyName' '?'), (Get-WpaValue $d 'Class' '?'), (Get-WpaValue $d 'SizeGB' '?'), (Get-WpaValue $d 'HealthStatus' '?'), $(if ([bool](Get-WpaValue $d 'IsSystem' $false)) { ' [sistema]' } else { '' })))
+    }
+    [void]$l.Add(('UNIDAD C:  {0} GB libres de {1} GB ({2}%)' -f (& $v 'SystemVolume.FreeGB'), (& $v 'SystemVolume.SizeGB'), (& $v 'SystemVolume.FreePercent')))
+    if ([bool](Get-WpaValue $Identity 'Battery.Present' $false)) { [void]$l.Add(('BATERIA    presente; salud {0}' -f (& $v 'Battery.Health' 'no disponible sin informe de bateria'))) }
+    [void]$l.Add(('PERFIL     disco {0}, RAM {1}, CPU {2}, GPU {3}{4}' -f (& $v 'Profile.StorageClass'), (& $v 'Profile.RamTier'), (& $v 'Profile.CpuTier'), (& $v 'Profile.GpuClass'), $(if ([bool](Get-WpaValue $Identity 'Profile.LowEnd' $false)) { ' - GAMA BAJA' } else { '' })))
+    [void]$l.Add(('CONTEXTO   administrado: {0}; consola elevada: {1}' -f (& $v 'Context.IsManaged'), (& $v 'Context.IsAdmin')))
+    return $l.ToArray()
+}
+
 function Test-WpaOptaneHybrid {
     <#
       Volumen HDD acelerado con Intel Optane mediante RST: Windows expone un disco
@@ -403,6 +472,9 @@ function Get-WpaHardwareProfile {
         default { [void]$strategy.Add('Tipo de disco no determinado: no se proponen optimizaciones de disco.') }
     }
     if ($ramTier -eq 'bajo') { [void]$strategy.Add('RAM baja: recortar programas de inicio, reducir efectos visuales, desinstalar lo que no se usa y evaluar ampliacion de memoria.') }
+    if ($ramTier -in @('bajo', 'medio') -and $Hardware -and $null -ne (Get-WpaValue $Hardware 'Memory.SlotsUsed')) {
+        [void]$strategy.Add('Ampliacion de RAM: ' + (Get-WpaRamUpgradeHint -SlotsTotal (Get-WpaValue $Hardware 'Memory.SlotsTotal') -SlotsUsed (Get-WpaValue $Hardware 'Memory.SlotsUsed')))
+    }
     elseif ($ramTier -eq 'medio') { [void]$strategy.Add('RAM media: suficiente para uso general; vigilar navegador con muchas pestanas y programas residentes.') }
     if ($cpuTier -eq 'bajo') { [void]$strategy.Add('CPU limitada: reducir efectos visuales, evitar tareas en segundo plano y mantener plan Equilibrado.') }
     if ($form -eq 'portatil') { [void]$strategy.Add('Portatil: mantener hibernacion y plan Equilibrado; revisar bateria, temperatura y cargador original.') }

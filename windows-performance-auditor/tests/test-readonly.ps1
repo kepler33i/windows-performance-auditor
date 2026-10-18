@@ -39,7 +39,7 @@ $allPs1 = $scriptFiles + @(Get-Item -LiteralPath $PSCommandPath)
 
 # ---------------------------------------------------------------------------
 Section 'Estructura'
-foreach ($rel in @('SKILL.md', 'scripts\collect-baseline.ps1', 'scripts\analyze-performance.ps1', 'scripts\hardware-health.ps1',
+foreach ($rel in @('SKILL.md', 'scripts\identify-system.ps1', 'scripts\collect-baseline.ps1', 'scripts\analyze-performance.ps1', 'scripts\hardware-health.ps1',
                    'scripts\propose-actions.ps1', 'scripts\apply-approved-action.ps1', 'scripts\validate-results.ps1',
                    'scripts\service-report.ps1', 'scripts\common.ps1', 'scripts\lib\core.ps1', 'scripts\lib\plan.ps1',
                    'scripts\lib\catalog.ps1', 'scripts\lib\inventory.ps1',
@@ -240,7 +240,7 @@ $descLine = [regex]::Match($fm.Groups[1].Value, '(?m)^description:\s*(.+)$').Gro
 Assert 'name coincide con la carpeta y es kebab-case' (($nameLine -eq (Split-Path $skillRoot -Leaf)) -and ($nameLine -match '^[a-z0-9-]{1,64}$'))
 Assert 'description presente y <= 1024 caracteres' ($descLine.Length -gt 50 -and $descLine.Length -le 1024) ("largo: " + $descLine.Length)
 Assert 'SKILL.md declara audit-only y que optimizar no es autorizacion' (($skillMd -match 'audit-only') -and ($skillMd -match '(?i)optimiza mi computador'))
-foreach ($s in @('collect-baseline.ps1', 'hardware-health.ps1', 'analyze-performance.ps1', 'propose-actions.ps1', 'apply-approved-action.ps1', 'validate-results.ps1', 'service-report.ps1',
+foreach ($s in @('identify-system.ps1', 'collect-baseline.ps1', 'hardware-health.ps1', 'analyze-performance.ps1', 'propose-actions.ps1', 'apply-approved-action.ps1', 'validate-results.ps1', 'service-report.ps1',
                  'uninstall-policy.md', 'optimization-profiles.md', 'safety-policy.md')) {
     Assert ("SKILL.md referencia " + $s) ($skillMd -match [regex]::Escape($s))
 }
@@ -252,6 +252,35 @@ $analyzeText = [IO.File]::ReadAllText((Join-Path $scripts 'analyze-performance.p
 foreach ($r in @([regex]::Matches($analyzeText, "-RuleId '([A-Z0-9-]+)'") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)) {
     Assert ("regla documentada: " + $r) ($rulesMd -match ('\|\s*' + [regex]::Escape($r) + '\s*\|'))
 }
+
+# ---------------------------------------------------------------------------
+Section 'Identificacion del equipo y plan de diagnostico'
+Assert 'tipo de equipo: portatil por bateria o chasis' (((Get-WpaFormFactor -ChassisTypes @(10)) -eq 'portatil') -and ((Get-WpaFormFactor -HasBattery $true) -eq 'portatil') -and ((Get-WpaFormFactor -ChassisTypes @(3)) -eq 'escritorio') -and ((Get-WpaFormFactor) -eq 'desconocido'))
+Assert 'ampliacion de RAM: ranuras libres / ocupadas / no determinables' (((Get-WpaRamUpgradeHint 2 1) -match '1 de 2 ranuras') -and ((Get-WpaRamUpgradeHint 2 2) -match 'ocupadas') -and ((Get-WpaRamUpgradeHint $null 1) -match 'no determinables'))
+$idLow = [pscustomobject]@{
+    System = [pscustomobject]@{ Manufacturer = 'Contoso'; Model = 'Laptop 14' }
+    Os = [pscustomobject]@{ Caption = 'Microsoft Windows 11 Home'; DisplayVersion = '24H2'; Build = '26100'; InstallDate = '2024-01-01' }
+    Bios = [pscustomobject]@{ Manufacturer = 'Contoso'; Version = '1.0'; ReleaseDate = '2020-01-01'; AgeYears = 6.8 }
+    Cpu = [pscustomobject]@{ Name = 'CPU de prueba'; Cores = 2; LogicalProcessors = 4; MaxClockMHz = 2400 }
+    Memory = [pscustomobject]@{ TotalGB = 4; Modules = @([pscustomobject]@{ CapacityGB = 4; SpeedMHz = 2400 }); UpgradeHint = (Get-WpaRamUpgradeHint 2 1) }
+    Gpu = @([pscustomobject]@{ Name = 'GPU integrada'; DriverVersion = '1.0'; DriverDate = '2023-01' })
+    Disks = @([pscustomobject]@{ DeviceId = '0'; FriendlyName = 'Intel Optane+1TBHDD'; Class = 'HDD-Optane'; SizeGB = 1000; HealthStatus = 'Healthy'; IsSystem = $true })
+    SystemVolume = [pscustomobject]@{ SizeGB = 930; FreeGB = 80; FreePercent = 8.6 }
+    Battery = [pscustomobject]@{ Present = $true; Health = $null }
+    Context = [pscustomobject]@{ IsManaged = $false; IsAdmin = $false }
+    Profile = [pscustomobject]@{ StorageClass = 'HDD-Optane'; IsMechanical = $true; RamTier = 'bajo'; CpuTier = 'bajo'; FormFactor = 'portatil'; GpuClass = 'integrada'; LowEnd = $true }
+}
+$planLow = Get-WpaDiagnosticPlan -Identity $idLow
+Assert 'plan: portatil -> informe de bateria' (@($planLow.HardwareArgs) -contains '-IncludeBatteryReport')
+Assert 'plan: RAM baja -> observacion de fugas' (@($planLow.CollectArgs) -contains '-LeakWatchMinutes 10')
+Assert 'plan: disco mecanico, BIOS antigua y poco espacio en foco' ((@($planLow.Focus) -join ' ') -match 'mecanico' -and (@($planLow.Focus) -join ' ') -match 'BIOS' -and (@($planLow.Focus) -join ' ') -match 'espacio')
+Assert 'plan: sin administrador avisa que datos faltaran' ((@($planLow.Notes) -join ' ') -match 'Sin administrador')
+Assert 'plan: inventario de programas solo con consentimiento' ((@($planLow.CollectArgs) -join ' ') -match 'consentimiento')
+$sumLow = @(Format-WpaSystemSummary -Identity $idLow)
+Assert 'resumen identifica equipo, BIOS, RAM con ranuras, disco y perfil' (($sumLow -join "`n") -match 'EQUIPO +Contoso Laptop 14' -and ($sumLow -join "`n") -match 'BIOS' -and ($sumLow -join "`n") -match '1 de 2 ranuras' -and ($sumLow -join "`n") -match 'HDD-Optane' -and ($sumLow -join "`n") -match 'GAMA BAJA')
+$idHigh = [pscustomobject]@{ Profile = [pscustomobject]@{ StorageClass = 'NVMe'; IsMechanical = $false; RamTier = 'alto'; CpuTier = 'alto'; FormFactor = 'escritorio' }; Context = [pscustomobject]@{ IsManaged = $false; IsAdmin = $true }; Bios = [pscustomobject]@{ AgeYears = 1 } }
+$planHigh = Get-WpaDiagnosticPlan -Identity $idHigh
+Assert 'plan gama alta: sin observacion de fugas ni bateria, foco en programas' ((@($planHigh.CollectArgs) -notcontains '-LeakWatchMinutes 10') -and (@($planHigh.HardwareArgs).Count -eq 0) -and ((@($planHigh.Focus) -join ' ') -match 'SSD'))
 
 # ---------------------------------------------------------------------------
 Section 'Perfil de hardware'
@@ -382,6 +411,7 @@ try {
         OS = @{ Caption = 'Microsoft Windows 11 Home'; Build = '26200'; TotalRamGB = 8; FreeRamGB = 0.4; UptimeHours = 300 }
         Device = @{ IsManaged = $false; ManagedReasons = @() }
         Computer = @{ Manufacturer = 'Contoso'; Model = 'Desktop 500'; FormFactor = 'escritorio' }
+        Bios = @{ Manufacturer = 'Contoso'; Version = '1.02'; ReleaseDate = '2019-05-01'; AgeYears = 7.5 }
         CPU = @{ Name = 'Fake CPU 4C'; Cores = 2; LogicalProcessors = 4 }
         GPU = @(@{ Name = 'Intel UHD Graphics' })
         Memory = @{ AvailableGB = 0.5; CommittedGB = 13; CommitLimitGB = 14; CommitPercent = 93; PagesPerSec = 1500 }
@@ -420,7 +450,7 @@ try {
     $hwFail = [ordered]@{
         Storage = @(@{ FriendlyName = 'FakeSSD 256'; MediaType = 'SSD'; HealthStatus = 'Warning'; SerialNumber = 'SN-SECRET-999'; Reliability = @{ Available = $true; WearPercentUsed = 95; ReadErrorsUncorrected = 3 }; FailurePredictAny = $false })
         DiskEvents = @{ BadBlock = 2; PagingError = 0; NtfsCorruption = 1; ControllerError = 0 }
-        Memory = @{ WheaEvents = 4 }
+        Memory = @{ WheaEvents = 4; SlotsTotal = 2; SlotsUsed = 1; Modules = @(@{ CapacityGB = 8; SpeedMHz = 2666 }) }
         Battery = @{ Present = $true; HealthPercent = 45; DesignCapacitymWh = 50000; FullChargeCapacitymWh = 22500; CycleCount = 900 }
         Throttling = @{ FirmwareLimitEvents = 12 }
         PowerEvents = @{ KernelPower41 = 4 }
@@ -469,7 +499,7 @@ try {
     foreach ($expected in @('MEM-01', 'PWR-01', 'HW-THROTTLE', 'DSK-01', 'DSK-02', 'HW-DISK', 'HW-DISK-EVENTS', 'HW-WHEA', 'HW-BATTERY', 'HW-POWER',
                             'STARTUP-01', 'DRV-01', 'GPU-01', 'APP-01', 'SYS-INTEGRITY', 'SYS-REBOOT', 'EVID-01', 'TASK-01', 'CPU-01',
                             'PROFILE', 'BOOT-01', 'REL-01', 'VISUAL-01', 'DISKOPT-01', 'HIBER-01', 'DEF-01', 'CLEANUP-01', 'CLEANUP-02',
-                            'ORPHAN-01', 'ORPHAN-02', 'APP-UNUSED-01', 'APP-REVIEW', 'APPUPD-01', 'BGAPP-01', 'MEM-LEAK-01', 'STARTUP-02')) {
+                            'ORPHAN-01', 'ORPHAN-02', 'APP-UNUSED-01', 'APP-REVIEW', 'APPUPD-01', 'BGAPP-01', 'MEM-LEAK-01', 'STARTUP-02', 'BIOS-01')) {
         Assert ("detecta " + $expected) ($rules -contains $expected)
     }
     Assert 'regla termica ACPI eliminada' ($rules -notcontains 'HW-THERMAL')
@@ -491,6 +521,8 @@ try {
     Assert 'reporte compartible sin usuario ni IP publica' (($share -notmatch ('(?i)' + [regex]::Escape($env:USERNAME))) -and ($share -notmatch '203\.0\.113\.50'))
     Assert 'reporte HTML sin scripts ni recursos externos' ($share -notmatch '(?i)<script|https?://')
     Assert 'reporte incluye estrategia por componentes' ($share -match 'Perfil y estrategia')
+    Assert 'reporte incluye inventario de componentes (BIOS, CPU, RAM, discos)' (($share -match 'BIOS: Contoso 1.02') -and ($share -match 'CPU: Fake CPU 4C') -and ($share -match 'ranuras de RAM') -and ($share -match 'Disco: Fake HDD 500'))
+    Assert 'estrategia incluye posibilidad de ampliar RAM' (@($fd.HardwareProfile.Strategy | Where-Object { $_ -match 'Ampliacion de RAM' }).Count -eq 1)
 
     Section 'Propuesta: modo asistido'
     $r = Invoke-Child 'propose-actions.ps1' @('-FindingsPath', (Join-Path $d1 'findings.json'), '-BaselinePath', $b1, '-OutputDir', $d1)

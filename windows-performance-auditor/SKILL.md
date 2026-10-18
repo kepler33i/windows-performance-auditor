@@ -34,16 +34,25 @@ Lee antes de actuar: `references/safety-policy.md`. Para clasificar: `references
   - Un archivo creado por el usuario en otra carpeta no sirve.
 - **Inventario de programas**: preguntar si autoriza `-IncludeAppUsage`, que calcula el ultimo uso por programa a partir de los rastros de ejecucion de Windows, sin guardar historial. Sin ese permiso no se proponen desinstalaciones.
 
-### Paso 1 - Recoleccion (solo lectura)
+### Paso 1 - Identificacion del equipo (siempre primero; solo lectura, segundos)
 ```powershell
-powershell.exe -NoProfile -File "<skill>\scripts\collect-baseline.ps1" -OutputDir "<carpeta>" [-IncludeAppUsage]
-powershell.exe -NoProfile -File "<skill>\scripts\hardware-health.ps1"  -OutputDir "<carpeta>" [-IncludeBatteryReport]
+powershell.exe -NoProfile -File "<skill>\scripts\identify-system.ps1" -OutputDir "<carpeta>"
 ```
-Para detectar fugas de memoria agrega `-LeakWatchMinutes 10` (observa 10 minutos la memoria de los procesos de mayor consumo; el agente nunca cierra procesos, solo informa).
+- Identifica fabricante, modelo y tipo de equipo; Windows; BIOS y su antiguedad; CPU; RAM con modulos y ranuras libres; GPU; discos (incluido HDD con Optane) y espacio; bateria; si el equipo esta administrado y si la consola esta elevada.
+- **Mostrar al usuario el resumen** ("este es tu equipo") y la **estrategia segun componentes** antes de seguir.
+- El **plan de diagnostico** que imprime define en que enfocarse y con que opciones recolectar. Por ejemplo: portatil -> `-IncludeBatteryReport`; RAM baja -> `-LeakWatchMinutes 10`; sin administrador -> avisar que datos faltaran. Usar esas opciones en el Paso 2, no opciones genericas.
+- Guarda `system-profile.json` en la carpeta de reportes.
 
-Sin administrador, Prefetch no esta disponible y muchos programas quedaran con "uso desconocido", por lo que no se propondran. Si el usuario quiere mejor evidencia, puede repetir la recoleccion en una consola elevada que abra el mismo.
+### Paso 2 - Recoleccion guiada por el plan (solo lectura)
+```powershell
+powershell.exe -NoProfile -File "<skill>\scripts\collect-baseline.ps1" -OutputDir "<carpeta>" <opciones del plan>
+powershell.exe -NoProfile -File "<skill>\scripts\hardware-health.ps1"  -OutputDir "<carpeta>" <opciones del plan>
+```
+- `-IncludeAppUsage` solo con consentimiento del usuario.
+- `-LeakWatchMinutes N` observa N minutos la memoria de los procesos de mayor consumo. El agente nunca cierra procesos, solo informa.
+- Sin administrador, Prefetch no esta disponible y muchos programas quedaran con "uso desconocido", por lo que no se propondran. Si el usuario quiere mejor evidencia, puede repetir la recoleccion en una consola elevada que abra el mismo.
 
-### Paso 2 - Analisis
+### Paso 3 - Analisis
 ```powershell
 powershell.exe -NoProfile -File "<skill>\scripts\analyze-performance.ps1" -BaselinePath "<carpeta>\baseline.json" -HardwarePath "<carpeta>\hardware-health.json" -OutputDir "<carpeta>"
 ```
@@ -56,7 +65,7 @@ powershell.exe -NoProfile -File "<skill>\scripts\analyze-performance.ps1" -Basel
   - indicar la prueba manual o el servicio tecnico necesario;
   - **no prometer** que una optimizacion de software lo resuelva.
 
-### Paso 3 - Propuesta (no ejecuta nada)
+### Paso 4 - Propuesta (no ejecuta nada)
 ```powershell
 powershell.exe -NoProfile -File "<skill>\scripts\propose-actions.ps1" -FindingsPath "<carpeta>\findings.json" -BaselinePath "<carpeta>\baseline.json" -OutputDir "<carpeta>" [-OperationMode tecnico -Ticket INC-123 -Technician <id>] [-IncludeRestorePoint]
 ```
@@ -76,7 +85,7 @@ Si hay desinstalaciones o reparaciones, el plan antepone un punto de restauracio
 
 Las acciones de riesgo medio se aprueban de a una.
 
-### Paso 4 - Aplicacion (solo lo aprobado, una accion por invocacion)
+### Paso 5 - Aplicacion (solo lo aprobado, una accion por invocacion)
 ```powershell
 powershell.exe -NoProfile -File "<skill>\scripts\apply-approved-action.ps1" -PlanPath "<carpeta>\action-plan.json" -SessionId <SessionId> -ActionId <ActionId> -Target "<objetivo exacto del plan>" -ApprovalText "<mensaje literal del usuario>" -Apply
 ```
@@ -89,7 +98,7 @@ powershell.exe -NoProfile -File "<skill>\scripts\apply-approved-action.ps1" -Pla
 - Actualizaciones de aplicaciones: primero se aplica `APP-UPDATE-CHECK` y despues se vuelve a ejecutar `propose-actions.ps1 -WingetUpgradesPath "<carpeta>\winget-upgrades.json"`, lo que genera un plan nuevo con una accion `APP-UPDATE` por aplicacion. Los controladores se actualizan siempre manualmente desde el fabricante.
 - Reparaciones: solo despues de una verificacion. Usar `-SfcViolationsConfirmed` o `-ComponentStoreCorrupted` en propose cuando el usuario confirme el resultado.
 
-### Paso 5 - Validacion e informe de servicio
+### Paso 6 - Validacion e informe de servicio
 ```powershell
 powershell.exe -NoProfile -File "<skill>\scripts\collect-baseline.ps1" -OutputDir "<carpeta>" -FileName baseline-after.json
 powershell.exe -NoProfile -File "<skill>\scripts\validate-results.ps1" -OutputDir "<carpeta>" -BeforePath "<carpeta>\baseline.json" -AfterPath "<carpeta>\baseline-after.json"

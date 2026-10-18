@@ -94,6 +94,17 @@ $computer = P 'computer' {
 }
 
 # --- Hardware ----------------------------------------------------------------
+$bios = P 'bios' {
+    $b = Get-CimInstance -ClassName Win32_BIOS
+    $date = $b.ReleaseDate
+    [pscustomobject]@{
+        Manufacturer = [string]$b.Manufacturer
+        Version      = [string]$b.SMBIOSBIOSVersion
+        ReleaseDate  = $(if ($date) { ([DateTime]$date).ToString('yyyy-MM-dd') } else { $null })
+        AgeYears     = $(if ($date) { [Math]::Round(([DateTime]::Now - [DateTime]$date).TotalDays / 365.25, 1) } else { $null })
+    }
+}
+
 $cpu = P 'cpu' {
     $c = @(Get-CimInstance -ClassName Win32_Processor)
     [pscustomobject]@{
@@ -574,6 +585,7 @@ $baseline = [ordered]@{
     OS              = $os
     Device          = $device
     Computer        = $computer
+    Bios            = $bios
     CPU             = $cpu
     GPU             = @(Get-WpaList $gpu)
     Disks           = @(Get-WpaList $disks)

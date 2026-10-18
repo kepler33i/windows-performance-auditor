@@ -15,6 +15,7 @@ Implementadas en `scripts/analyze-performance.ps1` con los mismos `RuleId` (las 
 ## Reglas
 | RuleId | Condicion | Categoria | Severidad | Accion propuesta |
 |---|---|---|---|---|
+| BIOS-01 | BIOS/UEFI con 3 anios o mas | configuracion-optimizable | bajo | Manual (actualizar desde el fabricante; la skill no toca firmware) |
 | PROFILE | Siempre: perfil de componentes y estrategia | evidencia-insuficiente | info | Orienta el resto (ver optimization-profiles.md) |
 | CTX-MANAGED | Dominio, Entra ID, MDM real o Enterprise/Education | evidencia-insuficiente | info | Bloquea cambios sin autorizacion corporativa |
 | MEM-01 | Commit >= 80% (alto >= 90%) | capacidad-insuficiente si RAM <= 8 GB; si no software-corregible | medio/alto | Manual |
